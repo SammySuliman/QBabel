@@ -1,5 +1,7 @@
 # Qubabel — Three-Person Quantum Dialogue
 
+LINK TO THE ACTUAL QUANTUM SIMULATOR TO RUN THE CODE: https://qollab.xyz/u/llzamenhof/qbabel-v2
+
 Qubabel is an interactive constructed-language experiment in which three people converse using ordinary English words, while their grammatical interpretations depend on personal measurement bases that evolve through the dialogue.
 
 The user chooses actual spoken lines rather than third-person descriptions. For example:
