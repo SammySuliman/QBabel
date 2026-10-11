@@ -1,0 +1,210 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Qubabel Dialogue</title><style>:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0c1424;color:#eef2ff}body{margin:0}main{max-width:960px;margin:auto;padding:40px 24px}h1{font-size:clamp(40px,7vw,76px);line-height:1.05;letter-spacing:-3px}h2{font-size:28px}p{line-height:1.65;color:#becae0}.eyebrow{color:#8ee6d3;letter-spacing:3px;font-size:12px}section,details{background:#152238;border:1px solid #354660;border-radius:20px;padding:26px;margin:24px 0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}label{display:grid;gap:12px}input{width:100%;accent-color:#8ee6d3}select,button{background:#8ee6d3;color:#102237;border:0;border-radius:9px;padding:12px;font:inherit}button{cursor:pointer;margin:8px 0}button:disabled{opacity:.6;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #facc15;outline-offset:4px}.bar{display:grid;grid-template-columns:150px 1fr 60px;gap:12px;align-items:center;margin:14px 0}.track{background:#263752;border-radius:8px;overflow:hidden}.fill{height:18px;background:#8ee6d3}pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}footer{font-size:13px;color:#b4c2d9;line-height:1.8}li{margin:8px 0}@media(max-width:600px){.grid{grid-template-columns:1fr}.bar{grid-template-columns:120px 1fr 50px}section{padding:18px}}
+</style><body><main></main><script>// Qubabel v2: explicit English mini-grammar, conversation-derived bases.
+const people=['Alice','Bob','Charlie'];
+const dimensions=['agency','tense','polarity','order'];
+const verbs={help:['helps','helped'],trust:['trusts','trusted'],follow:['follows','followed'],call:['calls','called'],see:['sees','saw']};
+const wordToVerb=Object.fromEntries(Object.entries(verbs).flatMap(([base,forms])=>[base,...forms].map(w=>[w,base])));
+function parse(text){
+  const clean=text.trim().replace(/[.!?]+$/,'').trim();
+  const low=clean.toLowerCase();
+  if(['i agree','i disagree','who helps whom','who','when','did it happen','say that again'].includes(low))return {kind:'context',type:low,text};
+  // Fixed, documented mini-grammar. No external NLP or sentiment guesses.
+  const m=clean.match(/^(?:(yesterday|tomorrow|no),?\s+)?(Alice|Bob|Charlie)\s+(?:(will|did)\s+)?(?:(not)\s+)?(help|helps|helped|trust|trusts|trusted|follow|follows|followed|call|calls|called|see|sees|saw)\s+(Alice|Bob|Charlie)$/i);
+  if(!m)throw new Error('Use e.g. “Alice helps Bob.”, “Yesterday, Alice helped Bob.”, “Tomorrow, Bob will help Alice.”, “Alice did not help Bob.”, or a listed context phrase.');
+  const canonical=n=>people.find(p=>p.toLowerCase()===n.toLowerCase());
+  const subject=canonical(m[2]),object=canonical(m[6]);
+  if(subject===object)throw new Error('Use two different people in this prototype.');
+  const verb=wordToVerb[m[5].toLowerCase()],forms=verbs[verb];
+  const tense=m[1]?.toLowerCase()==='tomorrow'||m[3]?.toLowerCase()==='will'?'future':m[1]?.toLowerCase()==='yesterday'||m[3]?.toLowerCase()==='did'||m[5].toLowerCase()===forms[1]?'past':'unresolved';
+  return {kind:'utterance',text,subject,object,verb,tense,negative:!!m[4]||m[1]?.toLowerCase()==='no'};
+}
+const initial=()=>Object.fromEntries(people.map(n=>[n,{basis:dimensions.map(()=>[]),heard:0}]));
+const ry=a=>({gate:'ry',angle:a});
+const rz=a=>({gate:'rz',angle:a});
+function contextOps(message){
+  if(message.kind==='utterance')return [ry(.22),message.tense==='past'?ry(-.42):message.tense==='future'?ry(.42):rz(.25),message.negative?rz(Math.PI/3):ry(-.12),rz(.18)];
+  const table={'i agree':[ry(-.18),ry(-.18),ry(-.18),ry(-.18)],'i disagree':[rz(.55),rz(.55),rz(.55),rz(.55)],'who helps whom':[rz(.7),ry(0),ry(0),ry(.28)],'who':[rz(.7),ry(0),ry(0),ry(.28)],'when':[ry(0),rz(.7),ry(0),ry(0)],'did it happen':[ry(0),ry(0),rz(.7),ry(0)],'say that again':[ry(.25),ry(.25),ry(.25),ry(.25)]};
+  return table[message.type];
+}
+function evolve(memory,listener,message,outcome=null){
+  const next=structuredClone(memory),ops=contextOps(message);
+  next[listener].heard++;
+  dimensions.forEach((_,d)=>{next[listener].basis[d].push(ops[d]);if(outcome!==null)next[listener].basis[d].push(outcome>>d&1?rz(.16):ry(-.1));});
+  return next;
+}
+function build(memory,speaker,listeners,message,shared){
+  if(message.kind!=='utterance')throw new Error('A content utterance is required.');
+  const probs=[.15,message.tense==='past'?.08:message.tense==='future'?.92:.5,message.negative?.92:.08,.2];
+  const ops=[];
+  for(let l=0;l<2;l++)for(let d=0;d<4;d++){
+    const q=l*4+d;ops.push({...ry(2*Math.asin(Math.sqrt(probs[d]))),q});
+    // Intent is encoded through the speaker's evolved linguistic frame.
+    for(const g of memory[speaker].basis[d])ops.push({...g,q});
+  }
+  // Shared history controls a genuine coherent controlled-phase interaction.
+  const coupling=Math.PI*shared/(shared+2);
+  if(shared>0)ops.push({gate:'cp',angle:coupling,q:0,target:4});
+  for(let l=0;l<2;l++)for(let d=0;d<4;d++){
+    for(const g of [...memory[listeners[l]].basis[d]].reverse())ops.push({...g,angle:-g.angle,q:l*4+d});
+  }
+  return {ops,qubits:8,speaker,listeners,message,shared,coupling};
+}
+function statevector(circuit){
+  const n=1<<circuit.qubits,re=new Float64Array(n),im=new Float64Array(n);re[0]=1;
+  for(const op of circuit.ops){
+    const mask=1<<op.q;
+    if(op.gate==='ry'){
+      const c=Math.cos(op.angle/2),s=Math.sin(op.angle/2);
+      for(let i=0;i<n;i++)if(!(i&mask)){const j=i|mask,a=re[i],b=re[j],ai=im[i],bi=im[j];re[i]=c*a-s*b;re[j]=s*a+c*b;im[i]=c*ai-s*bi;im[j]=s*ai+c*bi;}
+    }else{
+      for(let i=0;i<n;i++){
+        if(op.gate==='cp'&&(!(i&mask)||!(i&(1<<op.target))))continue;
+        const angle=op.gate==='cp'?op.angle:(i&mask?op.angle/2:-op.angle/2);
+        const c=Math.cos(angle),s=Math.sin(angle),a=re[i],b=im[i];re[i]=a*c-b*s;im[i]=a*s+b*c;
+      }
+    }
+  }return {re,im};
+}
+function distribution(circuit){const {re,im}=statevector(circuit);return [...re].map((v,i)=>v*v+im[i]*im[i]);}
+function marginal(p,listener){const out=Array(16).fill(0);p.forEach((v,i)=>out[(i>>(4*listener))&15]+=v);return out;}
+function sample(p,r=Math.random()){let sum=0;for(let i=0;i<p.length;i++){sum+=p[i];if(r<sum)return i;}return p.length-1;}
+function decode(message,value){
+  const reverse=value&1,future=value>>1&1,negative=value>>2&1,vso=value>>3&1;
+  const subject=reverse?message.object:message.subject,object=reverse?message.subject:message.object;
+  const verb=future?(negative?'will not ':'will ')+message.verb:negative?'did not '+message.verb:verbs[message.verb][1];
+  return {subject,object,tense:future?'future':'past',polarity:negative?'negative':'positive',order:vso?'VSO':'SVO',english:`${subject} ${verb} ${object}.`,surface:vso?`${verb} [subject: ${subject}] [object: ${object}]`:`${subject} ${verb} ${object}`};
+}
+function countsDistribution(entries){const p=Array(256).fill(0);let shots=0;for(const [key,count]of entries){const bits=String(key).replace(/\s/g,'');if(!/^[01]{1,8}$/.test(bits))throw new Error('Unsupported count key '+key);const n=Number(count);p[parseInt(bits,2)]+=n;shots+=n;}if(!shots)throw new Error('No counts returned');return {p:p.map(v=>v/shots),shots};}
+
+
+const root = document.querySelector('main') || document.body;
+root.innerHTML = `
+<p class="eyebrow">QUBABEL · DIALOGUE CODEX</p>
+<h1>Choose your words.<br>Watch grammar evolve.</h1>
+<p>All choices are spoken English lines with a named addressee. Personal bases grow from the conversation; there are no angle controls or LLM calls.</p>
+<section><h2 id="branch-title"></h2><p id="branch-note"></p><p id="speaker-label"></p><div id="choices" class="grid"></div><p id="status" role="status"></p><button id="reset">Restart conversation</button></section>
+<section><h2>Interpretations</h2><p id="probe-label">Choose an opening sentence.</p><div id="readings" class="grid"></div></section>
+<section><h2>Bloch spheres: before → after</h2><p>Cyan: message state. Dashed grey: basis before this turn. Gold: basis after this turn. The event is freshly replayed to predict how the updated basis would read it; earlier recorded outcomes stay unchanged.</p><p>P(outcome 0) = (1 + r · n) / 2. Outcome 0: written subject, past, positive, or SVO. Outcome 1: reversed roles, future, negative, or VSO. A short cyan vector is a mixed reduced state; individual spheres do not show all shared correlations.</p><div id="spheres" class="grid"></div></section>
+<section><h2>Conversation</h2><ol id="history"></ol></section>
+<section><h2>Qiskit check</h2><button id="quantum" disabled>Run current replay on selected backend</button><p id="backend-status" role="status">One eight-qubit backend job per project run. Local dialogue stays available afterward.</p><pre id="backend-results" tabindex="0"></pre></section>
+<details><summary>How the grammar works</summary><p>Each listener has four qubits: roles, past/future, polarity, and SVO/VSO order. Each spoken line has a predefined grammatical frame that resolves “I” to its speaker and “you” to its named addressee. A content utterance prepares fresh states, applies the speaker’s frame, links recipient agency qubits through a controlled phase determined by prior content exchanges, and measures each register through its listener’s basis.</p><p>Questions, agreement, disagreement and measured readings append prescribed Y/Z rotations to recipient bases. These are invented conlang rules. The sender does not update from sending alone. All participants start with identical neutral frames. Context turns update projections of a fresh replay, without claiming that a measured state remains uncollapsed.</p></details>
+<footer>This effort is supported by Qollab &amp; IonQ · MIT · AI-assisted implementation. Exact local quantum probabilities with classical sampling; backend counts use Qiskit. No outside service required.</footer>`;
+const $ = id => document.getElementById(id);
+const pct = n => (100*n).toFixed(1)+'%';
+let memory=initial(),node='opening',shared=0,turn=0,probe=null,backendCircuit=null,used=false;
+const codex={
+ opening:{speaker:'Alice',title:'Alice starts the conversation',note:'Alice, Bob and Charlie are discussing who will help whom.',options:[
+  ["Bob, I'll help you tomorrow.",'response','Tomorrow, Alice will help Bob.','Bob'],
+  ["Bob, I helped you yesterday.",'response','Yesterday, Alice helped Bob.','Bob']
+ ]},
+ response:{speaker:'Bob',title:'Bob replies to Alice',note:'Choose what Bob actually says.',options:[
+  ["Alice, when do you mean?",'time','When?','Alice'],
+  ["Alice, do you mean you will help me, or I will help you?",'roles','Who?','Alice'],
+  ["Alice, I disagree.",'disagreement','I disagree.','Alice'],
+  ["Alice, I agree.",'agreement','I agree.','Alice']
+ ]},
+ time:{speaker:'Alice',title:'Alice clarifies to Bob',note:'The tense clarification changes the conversation.',options:[
+  ["Bob, I mean I'll help you tomorrow.",'review','Tomorrow, Alice will help Bob.','Bob'],
+  ["Bob, I mean I helped you yesterday.",'review','Yesterday, Alice helped Bob.','Bob']
+ ]},
+ roles:{speaker:'Alice',title:'Alice clarifies the roles',note:'The addressed person fixes the reference of “you”.',options:[
+  ["Bob, I'll help you.",'review','Tomorrow, Alice will help Bob.','Bob'],
+  ["Bob, you'll help me.",'review','Tomorrow, Bob will help Alice.','Bob'],
+  ["Charlie, you'll help Bob.",'review','Tomorrow, Charlie will help Bob.','Charlie']
+ ]},
+ disagreement:{speaker:'Alice',title:'Alice responds to Bob’s disagreement',note:'Choose a correction or a new commitment.',options:[
+  ["Bob, you're right. I did not help you yesterday.",'review','Alice did not help Bob.','Bob'],
+  ["Bob, I'll help you tomorrow.",'review','Tomorrow, Alice will help Bob.','Bob']
+ ]},
+ agreement:{speaker:'Alice',title:'Alice continues after agreement',note:'She can keep the commitment or bring Charlie into it.',options:[
+  ["Bob, I'll help you tomorrow.",'review','Tomorrow, Alice will help Bob.','Bob'],
+  ["Charlie, you'll help Bob tomorrow.",'review','Tomorrow, Charlie will help Bob.','Charlie']
+ ]},
+ review:{speaker:'Charlie',title:'Charlie joins in',note:'Charlie’s reply updates Alice and Bob.',options:[
+  ["Alice, I agree.",'revisit','I agree.','Alice'],
+  ["Alice, I disagree.",'revisit','I disagree.','Alice'],
+  ["Alice, when do you mean?",'time','When?','Alice'],
+  ["Alice, could you say that again?",'revisit','Say that again.','Alice'],
+  ["Bob, I'll help you tomorrow.",'bobReply','Tomorrow, Charlie will help Bob.','Bob']
+ ]},
+ bobReply:{speaker:'Bob',title:'Bob responds to Charlie',note:'Alice also hears this exchange.',options:[
+  ["Charlie, I agree.",'revisit','I agree.','Charlie'],
+  ["Charlie, I disagree.",'revisit','I disagree.','Charlie'],
+  ["Charlie, I helped you yesterday.",'aliceReply','Yesterday, Bob helped Charlie.','Charlie']
+ ]},
+ aliceReply:{speaker:'Alice',title:'Alice reacts to Bob and Charlie',note:'She can ask for a replay or return to her own commitment.',options:[
+  ["Bob, could you say that again?",'bobReply','Say that again.','Bob'],
+  ["Bob, I'll help you tomorrow.",'response','Tomorrow, Alice will help Bob.','Bob']
+ ]},
+ revisit:{speaker:'Alice',title:'Alice revisits her earlier words',note:'Repeat a line and compare it with its earlier readings.',options:[
+  ["Bob, I'll help you tomorrow.",'response','Tomorrow, Alice will help Bob.','Bob'],
+  ["Bob, I helped you yesterday.",'response','Yesterday, Alice helped Bob.','Bob']
+ ]}
+};
+
+function bloch(circuit,q){
+ const {re,im}=statevector(circuit),mask=1<<q;let x=0,y=0,z=0;
+ for(let i=0;i<re.length;i++)if(!(i&mask)){const j=i|mask;x+=2*(re[i]*re[j]+im[i]*im[j]);y+=2*(re[i]*im[j]-im[i]*re[j]);z+=re[i]**2+im[i]**2-re[j]**2-im[j]**2;}
+ return [x,y,z];
+}
+function basis(gates){return bloch({qubits:1,ops:gates.map(g=>({...g,q:0}))},0);}
+function chance(r,n){return Math.max(0,Math.min(1,(1+r.reduce((s,v,i)=>s+v*n[i],0))/2));}
+function replay(prepared,frames){
+ const c=structuredClone(prepared);
+ c.listeners.forEach((name,l)=>dimensions.forEach((_,d)=>{for(const g of [...frames[name].basis[d]].reverse())c.ops.push({...g,angle:-g.angle,q:l*4+d});}));
+ return c;
+}
+function preparedPart(circuit,frames){
+ const suffix=circuit.listeners.reduce((s,n)=>s+frames[n].basis.reduce((a,b)=>a+b.length,0),0);
+ return {...structuredClone(circuit),ops:circuit.ops.slice(0,circuit.ops.length-suffix)};
+}
+function addLog(text){const li=document.createElement('li');li.textContent=text;$('history').append(li);}
+function renderChoices(){
+ const branch=codex[node];$('branch-title').textContent=branch.title;$('branch-note').textContent=branch.note;$('speaker-label').textContent='Next speaker: '+branch.speaker;$('choices').replaceChildren();
+ branch.options.forEach(([text,next,frame,to])=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.addEventListener('click',()=>choose(text,next,frame,to));$('choices').append(button);});
+}
+function predictions(circuit){
+ const p=distribution(circuit);$('readings').replaceChildren();
+ circuit.listeners.forEach((name,l)=>{const card=document.createElement('article'),h=document.createElement('h3');h.textContent=name;card.append(h);marginal(p,l).map((v,i)=>({v,i})).sort((a,b)=>b.v-a.v).slice(0,3).forEach(item=>{const r=decode(circuit.message,item.i),line=document.createElement('p');line.textContent=pct(item.v)+' · '+r.english+' · '+r.order;card.append(line);});$('readings').append(card);});
+}
+function drawSphere(canvas,r,before,after){
+ const ctx=canvas.getContext('2d');
+ const project=v=>[150+90*(.866*v[0]+.5*v[1]),125+90*(.25*v[0]-.433*v[1]-.866*v[2])];
+ function line(points,color){ctx.strokeStyle=color;ctx.beginPath();points.forEach((v,i)=>{const p=project(v);i?ctx.lineTo(...p):ctx.moveTo(...p);});ctx.stroke();}
+ ctx.lineWidth=1;
+ for(let d=0;d<3;d++){const points=[];for(let k=0;k<=80;k++){const t=k*2*Math.PI/80,v=[0,0,0];v[(d+1)%3]=Math.cos(t);v[(d+2)%3]=Math.sin(t);points.push(v);}line(points,'#56677e');}
+ for(let d=0;d<3;d++){const v=[0,0,0];v[d]=1.1;line([[0,0,0],v],'#66788f');ctx.fillStyle='#eef2ff';ctx.fillText(['X','Y','Z reference'][d],...project(v));}
+ function arrow(v,color,dashed){const [x,y]=project(v),a=Math.atan2(y-125,x-150);ctx.lineWidth=3;ctx.setLineDash(dashed?[5,4]:[]);line([[0,0,0],v],color);ctx.setLineDash([]);ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-8*Math.cos(a-.4),y-8*Math.sin(a-.4));ctx.lineTo(x-8*Math.cos(a+.4),y-8*Math.sin(a+.4));ctx.closePath();ctx.fill();}
+ arrow(before,'#a8b2c4',true);arrow(after,'#facc15',false);arrow(r,'#8ee6d3',false);
+}
+function spheres(before,after){
+ $('spheres').replaceChildren();if(!probe)return;
+ probe.listeners.forEach((name,l)=>dimensions.forEach((dimension,d)=>{
+  const r=bloch(probe,l*4+d),old=basis(before[name].basis[d]),next=basis(after[name].basis[d]);
+  const card=document.createElement('article'),h=document.createElement('h3');h.textContent=name+' · '+dimension;card.append(h);
+  const canvas=document.createElement('canvas');canvas.width=300;canvas.height=250;canvas.style.width='100%';canvas.style.maxWidth='300px';canvas.setAttribute('role','img');canvas.setAttribute('aria-label',`${name} ${dimension}: probability of outcome zero changes from ${pct(chance(r,old))} to ${pct(chance(r,next))}`);card.append(canvas);drawSphere(canvas,r,old,next);
+  const p=document.createElement('p');p.textContent=`P(0): ${pct(chance(r,old))} → ${pct(chance(r,next))} · state length ${Math.hypot(...r).toFixed(3)}`;card.append(p);$('spheres').append(card);
+ }));
+}
+function choose(text,next,frame,to){
+ try{
+  const speaker=codex[node].speaker,message=parse(frame),listeners=people.filter(p=>p!==speaker),before=structuredClone(memory);
+  message.text=text; message.grammarFrame=frame; message.addressee=to;
+  addLog(`${++turn}. ${speaker} → ${to}: “${text}”`);
+  if(message.kind==='context'){
+   listeners.forEach(name=>{memory=evolve(memory,name,message);});
+   addLog('Context update: '+listeners.join(' and ')+'. No event was measured on this turn.');
+  }else{
+   const circuit=build(memory,speaker,listeners,message,shared),out=sample(distribution(circuit));probe=preparedPart(circuit,memory);
+   listeners.forEach((name,l)=>{const value=(out>>(4*l))&15,r=decode(message,value);addLog(`${name} received: ${r.english} · ${r.order}: ${r.surface}`);memory=evolve(memory,name,message,value);});shared++;
+  }
+  if(probe){backendCircuit=replay(probe,memory);predictions(backendCircuit);spheres(before,memory);$('probe-label').textContent=`Fresh replay of “${probe.message.text}” for ${probe.listeners.join(' and ')} through their updated bases. Top three of 16 readings each.`;$('quantum').disabled=used;}
+  node=next;renderChoices();$('status').textContent='Turn complete. Choose the next sentence.';
+ }catch(error){$('status').textContent=error.message||String(error);}
+}
+$('reset').addEventListener('click',()=>{memory=initial();shared=0;turn=0;node='opening';probe=null;backendCircuit=null;['history','readings','spheres'].forEach(id=>$(id).replaceChildren());$('quantum').disabled=true;$('probe-label').textContent='Choose an opening sentence.';$('status').textContent='Everyone starts neutral again.';renderChoices();});
+$('quantum').addEventListener('click',async()=>{ $('backend-status').textContent='Standalone preview: use Qollab for a Qiskit backend job.'; return;
+ if(!backendCircuit||used)return;used=true;$('quantum').disabled=true;const c=structuredClone(backendCircuit);
+ try{const qc=QuantumCircuit(8,8);for(const g of c.ops){if(g.gate==='cp')qc.cp(g.angle,g.q,g.target);else if(g.gate==='ry')qc.ry(g.angle,g.q);else qc.rz(g.angle,g.q);}qc.measure([0,1,2,3,4,5,6,7],[0,1,2,3,4,5,6,7]);$('backend-status').textContent='Running captured replay on the selected backend…';const job=await backend.run(qc,{shots:512}),raw=(await job.result()).get_counts().toJs(),entries=raw instanceof Map?[...raw.entries()]:Object.entries(raw),result=countsDistribution(entries);$('backend-results').textContent=JSON.stringify({utterance:c.message.text,listeners:c.listeners,shots:result.shots,counts:Object.fromEntries(entries)},null,2);$('backend-status').textContent='Backend results received. Rerun the project for another backend job.';}catch(error){$('backend-status').textContent='Backend error: '+(error.message||error)+'. Rerun the project to retry.';}
+});
+renderChoices();$('status').textContent='Ready. Choose an opening sentence.';</script></body></html>
